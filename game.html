@@ -1,0 +1,670 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+	<style>
+		* { margin: 0px; padding : 0px;}
+		canvas { width: 100%; height: 100% }
+		.info {
+				position: absolute;
+				top: 0px; width: 100%;
+				padding: 5px;
+				color : #ffffff
+			}
+	</style>
+</head>
+<title>
+	Proiect TW-FaceMaze
+</title>
+</head>
+<body>
+	<div class="info" id = "stats">
+		<span id = "score">Score = 0</span> <br>
+		<img id = "life1" src="/Pacman.png" width="25">
+		<img id = "life2" src="/Pacman.png" width="25">
+		<img id = "life3" src="/Pacman.png" width="25">
+		<br>
+		<div id = "trash"></div>
+	</div>
+	<script src="http://threejs.org/build/three.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.5.1/dat.gui.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0-rc1/jquery.js"></script>
+	<script src="//connect.facebook.net/en_US/all.js"></script>
+
+	<script>
+		var userId = undefined 
+		var name = undefined
+
+		window.fbAsyncInit = function() {
+		    FB.init({
+		      appId      : '1176617402390075',
+		      xfbml      : true,
+		      version    : 'v2.6'
+		    });
+		  }
+
+
+		(function(d, s, id){
+		     var js, fjs = d.getElementsByTagName(s)[0];
+		     if (d.getElementById(id)) {return;}
+		     js = d.createElement(s); js.id = id;
+		     js.src = "//connect.facebook.net/en_US/sdk.js";
+		     fjs.parentNode.insertBefore(js, fjs);
+		}(document, 'script', 'facebook-jssdk'));
+
+		FB.getLoginStatus(function(response) {
+		  //alert(response.status)
+		  if (response.status === 'connected') {
+		  	
+		    // the user is logged in and has authenticated your
+		    // app, and response.authResponse supplies
+		    // the user's ID, a valid access token, a signed
+		    // request, and the time the access token 
+		    // and signed request each expire
+		    var uid = response.authResponse.userID;
+		    var accessToken = response.authResponse.accessToken;
+			
+			FB.api(
+			  '/me',
+			  'GET',
+			  {},
+			  function(response) {
+			  	  name = response.name
+			  	  userId = response.id
+
+			  	  FB.api(
+					  '/me/picture',
+					  'GET',
+					  {},
+					  function(response) {
+					  	  //console.log(response)
+					  	  document.getElementById("trash").innerHTML = ""+name+"<br><img src="+response.data.url+">"
+					  	  
+					      
+					  }
+				  );
+
+			      
+			  }
+			);
+		  } else if (response.status === 'not_authorized') {
+		    // the user is logged in to Facebook, 
+		    // but has not authenticated your app
+		  } else {
+		    // the user isn't logged in to Facebook.
+		  }
+		});
+
+
+		var renderer = new THREE.WebGLRenderer({ antialiasing: true});
+		var scene = new THREE.Scene();
+		var winScene = new THREE.Scene();
+		var loseScene = new THREE.Scene();
+		var currentScene = scene;
+		var camera = new THREE.OrthographicCamera(0,35,0,35,-50,50)
+
+		renderer.setSize(640, 640)
+		document.body.appendChild(renderer.domElement);
+		renderer.shadowMapType = THREE.PCFSoftShadowMap;
+		renderer.shadowMapEnabled = true;
+
+		var maze = []
+		var direction = "0"
+		var nextdirection = "0"
+		var target_ghost_1 = undefined
+		var target_ghost_2 = undefined
+		var target_ghost_3 = undefined
+		var pacman_trace = []
+		var targetScore = 0
+
+		function getMaze() {
+			var finished = false
+			m = []
+			$.get("/generateMaze", function(data) {
+				m = data.split("\n")
+				function setCharAt(str,index,chr) {
+					if(index > str.length-1) return str;
+					return str.substr(0,index) + chr + str.substr(index+1);
+				}
+				m[12] = setCharAt(m[12],13,"1")
+				m[13] = setCharAt(m[13],13,"2")
+				m[14] = setCharAt(m[14],13,"3")
+				m[13] = setCharAt(m[13],17,"&")
+				maze = m
+				maze.pop()
+				init()
+			})
+			
+		}
+		function init() {
+			var cornerlu = THREE.ImageUtils.loadTexture("/cornerlu.png")
+			var cornerru = THREE.ImageUtils.loadTexture("/cornerru.png")
+			var cornerld = THREE.ImageUtils.loadTexture("/cornerld.png")
+			var cornerrd = THREE.ImageUtils.loadTexture("/cornerrd.png")
+			var brick = THREE.ImageUtils.loadTexture("/brick.png")
+			var ghostwall = THREE.ImageUtils.loadTexture("/ghostwall.png")
+			var point = THREE.ImageUtils.loadTexture("/point.png")
+			var pacman = THREE.ImageUtils.loadTexture("/pacman.png")
+			var power = THREE.ImageUtils.loadTexture("/power.png")
+			var ghost = {
+				"1":THREE.ImageUtils.loadTexture("/ghost1.png"),
+				"2":THREE.ImageUtils.loadTexture("/ghost2.png"),
+				"3":THREE.ImageUtils.loadTexture("/ghost3.png")
+			}
+
+			points = []
+			for (var i = 0; i < maze.length; i++) {
+				points.push([])
+				for (var j = 0; j < maze[i].length; j++) {
+					if (maze[i].charAt(j) == " ")
+						points[i].push(1)
+					else
+						points[i].push(0)
+
+					switch (maze[i].charAt(j)) {
+						case "*":
+						case "-":
+							var texture = null
+							if (maze[i].charAt(j) == "-" || i == 0 || j == 0 || i == maze.length-1 || j == maze[i].length-1) {
+								texture = brick
+							} else
+							if (j >= 1 && j < maze[i].length - 1 && i >= 1 && i < maze.length-1) {
+								if (maze[i].charAt(j-1) != "*" && maze[i].charAt(j+1) == "*" && maze[i-1].charAt(j) != "*" && maze[i+1].charAt(j) == "*")
+								{	
+									texture = cornerlu
+								}
+								else if (maze[i].charAt(j-1) == "*" && maze[i].charAt(j+1) != "*" && maze[i-1].charAt(j) != "*" && maze[i+1].charAt(j) == "*")
+								{	
+									texture = cornerru
+								}
+								else if (maze[i].charAt(j-1) == "*" && maze[i].charAt(j+1) != "*" && maze[i+1].charAt(j) != "*" && maze[i-1].charAt(j) == "*")
+								{	
+									texture = cornerrd
+								}
+								else if (maze[i].charAt(j+1) == "*" && maze[i].charAt(j-1) != "*" && maze[i+1].charAt(j) != "*" && maze[i-1].charAt(j) == "*")
+								{	
+									texture = cornerld
+								}
+								else
+								{
+									texture = brick
+								}
+							}
+
+							var planeGeom = new THREE.PlaneGeometry(1,1,1,1)
+							var material = new THREE.MeshBasicMaterial({map:texture, transparent:true})
+							var mesh = new THREE.Mesh(planeGeom, material)
+							mesh.position.x = j
+							mesh.position.y = i
+							mesh.name = "wall"
+							mesh.rotation.set(3.14159265,0,0)
+							scene.add(mesh)
+							break
+						case "+":
+							var texture = ghostwall
+							var planeGeom = new THREE.PlaneGeometry(1,1,1,1)
+							var material = new THREE.MeshBasicMaterial({map:texture})
+							var mesh = new THREE.Mesh(planeGeom, material)
+							mesh.position.x = j
+							mesh.position.y = i
+							mesh.name = "wall"
+							mesh.rotation.set(3.14159265,0,0)
+							scene.add(mesh)
+							break
+						case " ":
+							var texture = point
+							var planeGeom = new THREE.PlaneGeometry(0.2,0.2,1,1)
+							var material = new THREE.MeshBasicMaterial({map:texture})
+							var mesh = new THREE.Mesh(planeGeom, material)
+							mesh.position.x = j
+							mesh.position.y = i
+							mesh.name = "point"+i+"_"+j
+							mesh.rotation.set(3.14159265,0,0)
+							scene.add(mesh)
+							targetScore++
+							break
+						case "&":
+							var texture = point
+							var planeGeom = new THREE.PlaneGeometry(1,1,1,1)
+							var material = new THREE.MeshBasicMaterial({map:point})
+							var mesh = new THREE.Mesh(planeGeom, material)
+							mesh.position.x = j
+							mesh.position.y = i
+							mesh.name = "pacman"
+							mesh.score = 0
+							mesh.lives = 3
+							mesh.virtualCoords = {y:i*10,x:j*10}
+							mesh.initPos = {y:i,x:j}
+							mesh.rotation.set(3.14159265,0,0)
+							scene.add(mesh)
+							break
+						case "$":
+							var texture = power
+							var planeGeom = new THREE.PlaneGeometry(1,1,1,1)
+							var material = new THREE.MeshBasicMaterial({map:texture, transparent:true})
+							var mesh = new THREE.Mesh(planeGeom, material)
+							mesh.position.x = j
+							mesh.position.y = i
+							mesh.name = "power"+i+""+j
+							mesh.rotation.set(3.14159265,0,0)
+							scene.add(mesh)
+							break
+						case "1":
+						case "2":
+						case "3":
+							var texture = ghost[maze[i].charAt(j)]
+							var planeGeom = new THREE.PlaneGeometry(1,1,1,1)
+							var material = new THREE.MeshBasicMaterial({map:texture})
+							var mesh = new THREE.Mesh(planeGeom, material)
+							mesh.position.x = j
+							mesh.position.y = i
+							mesh.name = "ghost_"+maze[i].charAt(j)
+							mesh.initPos = {y:i,x:j}
+							mesh.virtualCoords = {y:i*10,x:j*10}
+							mesh.rotation.set(3.14159265,0,0)
+							mesh.mighty = true
+							scene.add(mesh)
+							break
+						default:
+							var planeGeom = new THREE.PlaneGeometry(1,1,1,1)
+							var material = new THREE.MeshBasicMaterial({color:0x000000})
+							var mesh = new THREE.Mesh(planeGeom, material)
+							mesh.position.x = j
+							mesh.position.y = i
+							scene.add(mesh)
+					}
+				}
+			}
+			camera.position.set(-4,-4,0)
+
+			window.addEventListener("keydown", function(event) {
+				switch (event.key) {
+					case "a":
+					case "A":
+						nextdirection = "left"
+						break
+					case "d":
+					case "D":
+						nextdirection = "right"
+						break
+					case "w":
+					case "W":
+						nextdirection = "up"
+						break
+					case "s":
+					case "S":
+						nextdirection = "down"
+						break
+
+				}
+			})
+		}
+		function getObject(name) {
+			return scene.getObjectByName(name)
+		}
+		function removeObject(name) {
+			return scene.remove(getObject(name))
+		}
+		function isFree(a) {
+			if (maze[a.y] == undefined || maze[a.y][a.x] == undefined || maze[a.y][a.x] == "*" || maze[a.y][a.x] == "-" || maze[a.y][a.x] == "?")
+				return false
+			return true
+		}
+		function adjectCell(a, dir) {
+			switch (dir) {
+				case 0: return {x:a.x-1, y:a.y}
+				case 1: return {x:a.x, y:a.y-1}
+				case 2: return {x:a.x+1, y:a.y}
+				case 3: return {x:a.x, y:a.y+1}
+
+			}
+			return a
+		}
+		function manhattanDistance(name1, name2) {
+			var n1 = scene.getObjectByName(name1)
+			var n2 = scene.getObjectByName(name2)
+			return Math.abs(n1.virtualCoords.x - n2.virtualCoords.x) + Math.abs(n1.virtualCoords.y - n2.virtualCoords.y)
+		}
+		function bfs(a, b) {
+			var queue = []
+			if (! isFree(a) || ! isFree(b)) {
+
+				return queue
+			}
+			if (a.x == b.x && a.y == b.y)
+				return queue
+
+			var aux = []
+			for (var i = 0; i < maze.length; i++) {
+				aux.push([])
+				for (var j = 0; j < maze[0].length; j++)
+					aux[i].push(0)
+			}
+
+			queue.push(a)
+			aux[a.y][a.x] = "root"
+
+			while (queue.length > 0) {
+				var first = queue[0]
+				queue.shift()
+
+				if (first.x == b.x && first.y == b.y) {
+					var path = []
+					path.push(first)
+					while (aux[first.y][first.x] != "root") {
+						first = aux[first.y][first.x]
+						path.push(first)
+					}
+					return path.reverse()
+				}
+
+				var left = adjectCell(first, 0)
+				var up = adjectCell(first, 1)
+				var right = adjectCell(first, 2)
+				var down = adjectCell(first, 3)
+				if (isFree(left) && aux[left.y][left.x] == 0) {
+					aux[left.y][left.x] = first
+					queue.push(left)
+				}
+				if (isFree(up) && aux[up.y][up.x] == 0) {
+					aux[up.y][up.x] = first
+					queue.push(up)
+				}
+				if (isFree(right) && aux[right.y][right.x] == 0) {
+					aux[right.y][right.x] = first
+					queue.push(right)
+				}
+				if (isFree(down) && aux[down.y][down.x] == 0) {
+					aux[down.y][down.x] = first
+					queue.push(down)
+				}
+			}
+			return []
+		}
+		getMaze()
+		
+		var fps = 15;
+		var now;
+		var then = Date.now();
+		var interval = 1000/fps;
+		var delta;
+		var jump = 2 // must be 1,2 or 5
+		var start = Date.now();
+		var gameBeginning = Date.now()
+
+		//console.log(bfs({y:1,x:1},{y:10,x:11}))
+		function render() {
+			requestAnimationFrame( render );
+
+			now = Date.now();
+		    delta = now - then;
+		     
+		    if (delta > interval) {
+		    	then = now - (delta % interval);
+
+		    	if (currentScene == scene) {
+					var position = getObject("pacman").virtualCoords
+					//console.log(position)
+					var ghost_1 = scene.getObjectByName("ghost_1")
+			    	var ghost_2 = scene.getObjectByName("ghost_2")
+			    	var ghost_3 = scene.getObjectByName("ghost_3")
+			    	var pacman = scene.getObjectByName("pacman")
+
+		    		if (pacman.score == targetScore) {
+			    		currentScene = winScene
+			    		target_ghost_1 = undefined
+			    		target_ghost_2 = undefined
+			    		target_ghost_3 = undefined
+			    		nextdirection = "0"
+			    		direction = "0"
+
+			    		var time = Date.now() - gameBeginning
+			    		document.getElementById("stats").innerHTML = "<h1>You won the game in " + (time/1000) + " seconds<br>The game will restart in 3 seconds...</h1>"
+			    		$.get("/storeTime?id="+userId+"&value="+time, function(data) {
+			    			//Nothing to do
+			    		})
+			    		setTimeout(function() {
+			    			window.location.replace("http://localhost:8000")
+			    		}, 3000)
+
+			    	} else
+					if (manhattanDistance("pacman", "ghost_1") < 10 || manhattanDistance("pacman", "ghost_2") < 10 || manhattanDistance("pacman", "ghost_3") < 10) {
+			    		//alert("collided")
+			    		var element = document.getElementById("life"+pacman.lives)
+			    		element.parentNode.removeChild(element)
+			    		pacman.lives--
+			    		if (pacman.lives == 0) {
+			    			currentScene = loseScene
+			    			document.getElementById("stats").innerHTML = "<h1>You lost:(<br>The game will restart in 3 seconds...</h1>"
+			    			setTimeout(function() {
+			    				window.location.replace("http://localhost:8000")
+			    			}, 3000)
+			    		} else {
+			    			pacman.position.set(pacman.initPos.x, pacman.initPos.y, 0)
+			    			ghost_1.position.set(ghost_1.initPos.x, ghost_1.initPos.y, 0)
+			    			ghost_2.position.set(ghost_2.initPos.x, ghost_2.initPos.y, 0)
+			    			ghost_3.position.set(ghost_3.initPos.x, ghost_3.initPos.y, 0)
+			    			pacman.virtualCoords = {x:pacman.initPos.x*10, y:pacman.initPos.y*10}
+			    			ghost_1.virtualCoords = {x:ghost_1.initPos.x*10, y:ghost_1.initPos.y*10}
+			    			ghost_2.virtualCoords = {x:ghost_2.initPos.x*10, y:ghost_2.initPos.y*10}
+			    			ghost_3.virtualCoords = {x:ghost_3.initPos.x*10, y:ghost_3.initPos.y*10}
+
+			    			target_ghost_1 = undefined
+			    			target_ghost_2 = undefined
+			    			target_ghost_3 = undefined
+			    			nextdirection = "0"
+			    			direction = "0"
+			    			start = Date.now()
+			    		}
+			    	}
+
+			    	// When ghost return to their house they gain their power back
+			    	if (ghost_1.virtualCoords.x / 10 == ghost_1.initPos.x && ghost_1.virtualCoords.y / 10 == ghost_1.initPos.y)
+			    		ghost_1.mighty = true
+			    	if (ghost_2.virtualCoords.x / 10 == ghost_2.initPos.x && ghost_2.virtualCoords.y / 10 == ghost_2.initPos.y)
+			    		ghost_2.mighty = true
+			    	if (ghost_3.virtualCoords.x / 10 == ghost_3.initPos.x && ghost_3.virtualCoords.y / 10 == ghost_3.initPos.y)
+			    		ghost_3.mighty = true
+
+
+					///////////--------------CODE FOR UPDATING GHOST 1-------------------/////////////
+					if (target_ghost_1 != undefined) {
+						//alert("asda")
+						if (getObject("ghost_1").virtualCoords.x < target_ghost_1.x * 10)
+							getObject("ghost_1").virtualCoords.x += jump
+						else if (getObject("ghost_1").virtualCoords.x > target_ghost_1.x * 10)
+							getObject("ghost_1").virtualCoords.x -= jump
+
+						if (getObject("ghost_1").virtualCoords.y < target_ghost_1.y * 10)
+							getObject("ghost_1").virtualCoords.y += jump
+						else if (getObject("ghost_1").virtualCoords.y > target_ghost_1.y * 10)
+							getObject("ghost_1").virtualCoords.y -= jump
+
+						getObject("ghost_1").position.set(getObject("ghost_1").virtualCoords.x/10, getObject("ghost_1").virtualCoords.y/10, 0)
+					}
+					///////////--------------CODE FOR UPDATING GHOST 2-------------------/////////////
+					if (target_ghost_2 != undefined && manhattanDistance("ghost_1","ghost_2") > 10) {
+						//alert("asda")
+						if (getObject("ghost_2").virtualCoords.x < target_ghost_2.x * 10)
+							getObject("ghost_2").virtualCoords.x += jump
+						else if (getObject("ghost_2").virtualCoords.x > target_ghost_2.x * 10)
+							getObject("ghost_2").virtualCoords.x -= jump
+
+						if (getObject("ghost_2").virtualCoords.y < target_ghost_2.y * 10)
+							getObject("ghost_2").virtualCoords.y += jump
+						else if (getObject("ghost_2").virtualCoords.y > target_ghost_2.y * 10)
+							getObject("ghost_2").virtualCoords.y -= jump
+
+						getObject("ghost_2").position.set(getObject("ghost_2").virtualCoords.x/10, getObject("ghost_2").virtualCoords.y/10, 0)
+					}
+
+					///////////--------------CODE FOR UPDATING GHOST 3-------------------/////////////
+					if (target_ghost_3 != undefined && manhattanDistance("ghost_2","ghost_3") > 10 && manhattanDistance("ghost_1","ghost_3") > 10) {
+						//alert("asda")
+						if (getObject("ghost_3").virtualCoords.x < target_ghost_3.x * 10)
+							getObject("ghost_3").virtualCoords.x += jump
+						else if (getObject("ghost_3").virtualCoords.x > target_ghost_3.x * 10)
+							getObject("ghost_3").virtualCoords.x -= jump
+
+						if (getObject("ghost_3").virtualCoords.y < target_ghost_3.y * 10)
+							getObject("ghost_3").virtualCoords.y += jump
+						else if (getObject("ghost_3").virtualCoords.y > target_ghost_3.y * 10)
+							getObject("ghost_3").virtualCoords.y -= jump
+
+						getObject("ghost_3").position.set(getObject("ghost_3").virtualCoords.x/10, getObject("ghost_3").virtualCoords.y/10, 0)
+					}
+
+					///////////--------------CODE FOR UPDATING PACMAN-------------------/////////////
+					if (position.x/10 == Math.floor(position.x/10) && position.y/10 == Math.floor(position.y/10)) {
+						if (scene.getObjectByName("power"+Math.floor(position.y/10)+""+Math.floor(position.x/10)) != undefined) {
+							removeObject("power"+Math.floor(position.y/10)+""+Math.floor(position.x/10), "pacman")
+			    			getObject("ghost_1").mighty = false
+			    			getObject("ghost_2").mighty = false
+			    			getObject("ghost_3").mighty = false
+
+						}
+
+						// Update the ghost's new target position
+						var converta = {x:Math.floor(getObject("ghost_1").virtualCoords.x/10), y:Math.floor(getObject("ghost_1").virtualCoords.y/10)}
+						var convertb = {x:Math.floor(getObject("pacman").virtualCoords.x/10), y:Math.floor(getObject("pacman").virtualCoords.y/10)}
+						
+
+						// Find next target for ghost_1
+						if (getObject("ghost_1").mighty)
+							target_ghost_1 = bfs(converta, convertb)[1]
+						else
+							target_ghost_1 = bfs({x:Math.floor(getObject("ghost_1").virtualCoords.x/10),
+												  y:Math.floor(getObject("ghost_1").virtualCoords.y/10)
+												  }, getObject("ghost_1").initPos)[1]
+
+						// Find next target for ghost_2
+						if (getObject("ghost_2").mighty) {
+							if (now-start >= 3000) {
+								var converta = {x:Math.floor(getObject("ghost_2").virtualCoords.x/10), y:Math.floor(getObject("ghost_2").virtualCoords.y/10)}
+								var convertb = {x:Math.floor(getObject("pacman").virtualCoords.x/10), y:Math.floor(getObject("pacman").virtualCoords.y/10)}
+								target_ghost_2 = bfs(converta, convertb)[1]
+							}
+						} else {
+							target_ghost_2 = bfs({x:Math.floor(getObject("ghost_2").virtualCoords.x/10),
+												  y:Math.floor(getObject("ghost_2").virtualCoords.y/10)
+												  }, getObject("ghost_2").initPos)[1]
+						}
+
+						// Find next target for ghost_3
+						if (getObject("ghost_2").mighty) {
+							if (now-start >= 6000) {
+								var converta = {x:Math.floor(getObject("ghost_3").virtualCoords.x/10), y:Math.floor(getObject("ghost_3").virtualCoords.y/10)}
+								var convertb = {x:Math.floor(getObject("pacman").virtualCoords.x/10), y:Math.floor(getObject("pacman").virtualCoords.y/10)}
+								target_ghost_3 = bfs(converta, convertb)[1]
+							}
+						} else {
+							target_ghost_3 = bfs({x:Math.floor(getObject("ghost_3").virtualCoords.x/10),
+												  y:Math.floor(getObject("ghost_3").virtualCoords.y/10)
+												  }, getObject("ghost_3").initPos)[1]
+						}
+
+						pacman_trace.push({x:position.x/10, y:position.y/10})
+
+
+						if (points[position.y/10][position.x/10] == 1) {
+							points[position.y/10][position.x/10] = 0
+							getObject("pacman").score++
+							removeObject("point"+(position.y/10)+"_"+(position.x/10))
+							document.getElementById("score").innerHTML = "Score = " + getObject("pacman").score
+						}
+						switch (nextdirection) {
+							case "up":
+								var neighbour = maze[position.y/10-1][position.x/10]
+								if (neighbour == " " || neighbour == "." || neighbour == "$" || neighbour == "&") {
+									direction = "up"
+									nextdirection = "0"
+								}
+								
+								break
+							case "down":
+								var neighbour = maze[position.y/10+1][position.x/10]
+								if (neighbour == " " || neighbour == "." || neighbour == "$" || neighbour == "&") {
+									direction = "down"
+									nextdirection = "0"
+								}
+								
+								break
+							case "left":
+								var neighbour = maze[position.y/10][position.x/10-1]
+								if (neighbour == " " || neighbour == "." || neighbour == "$" || neighbour == "&") {
+									direction = "left"
+									nextdirection = "0"
+								}
+								
+								break
+							case "right":
+								var neighbour = maze[position.y/10][position.x/10+1]
+								if (neighbour == " " || neighbour == "." || neighbour == "$" || neighbour == "&") {
+									direction = "right"
+									nextdirection = "0"
+								}
+								
+								break
+
+						}
+					}
+					switch (direction) {
+						case "up":
+							var neighbour = maze[Math.floor(position.y/10)][Math.floor(position.x/10)]
+							console.log(neighbour)
+							if (neighbour == " " || neighbour == "." || neighbour == "$" || neighbour == "&") {
+								getObject("pacman").virtualCoords.y -= jump
+								if (getObject("pacman").virtualCoords.y == -jump) {
+									getObject("pacman").virtualCoords.y = (maze.length-1)*10
+								}
+								getObject("pacman").position.set(getObject("pacman").virtualCoords.x/10, getObject("pacman").virtualCoords.y/10, 0)
+							} else {
+								direction = "0"
+								getObject("pacman").virtualCoords.y += jump
+								getObject("pacman").position.set(getObject("pacman").virtualCoords.x/10, getObject("pacman").virtualCoords.y/10, 0)
+							}
+							break
+						case "down":
+							if (getObject("pacman").virtualCoords.y == (maze.length-1)*10) {
+								getObject("pacman").virtualCoords.y = 0
+								getObject("pacman").position.set(getObject("pacman").virtualCoords.x/10, getObject("pacman").virtualCoords.y/10, 0)
+							}
+							var neighbour = maze[Math.floor(position.y/10)+1][Math.floor(position.x/10)]
+							if (neighbour == " " || neighbour == "." || neighbour == "$" || neighbour == "&") {
+								getObject("pacman").virtualCoords.y += jump
+								getObject("pacman").position.set(getObject("pacman").virtualCoords.x/10, getObject("pacman").virtualCoords.y/10, 0)
+							} else {
+								direction = "0"
+
+							}
+							break
+						case "left":
+							var neighbour = maze[Math.floor(position.y/10)][Math.floor(position.x/10)]
+							if (neighbour == " " || neighbour == "." || neighbour == "$" || neighbour == "&") {
+								getObject("pacman").virtualCoords.x -= jump
+								getObject("pacman").position.set(getObject("pacman").virtualCoords.x/10, getObject("pacman").virtualCoords.y/10, 0)
+							} else {
+								direction = "0"
+								getObject("pacman").virtualCoords.x += jump
+								getObject("pacman").position.set(getObject("pacman").virtualCoords.x/10, getObject("pacman").virtualCoords.y/10, 0)
+							}
+							break
+						case "right":
+							var neighbour = maze[Math.floor(position.y/10)][Math.floor(position.x/10)+1]
+							if (neighbour == " " || neighbour == "." || neighbour == "$" || neighbour == "&") {
+								getObject("pacman").virtualCoords.x += jump
+								getObject("pacman").position.set(getObject("pacman").virtualCoords.x/10, getObject("pacman").virtualCoords.y/10, 0)
+							} else {
+								direction = "0"
+							}
+							break
+
+					}
+				}
+				renderer.render( currentScene, camera );
+			}
+
+		}
+		render();
+	</script>
+</body>
+</html>

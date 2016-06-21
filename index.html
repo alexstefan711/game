@@ -1,0 +1,125 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+	<style>
+		* { margin: 0px; padding : 0px;}
+		body {
+			background-image: url('background.png')
+		}
+		@keyframes hover {
+		    0%   {background-color: #0000; left:0px; top:0px;}
+		    100% {background-color: #070; left:0px; top:0px;}
+		}
+
+		.option {
+			width : 100%;
+			text-align:center;
+			margin : 20px;
+
+		}
+		.option:hover {
+			animation-name: hover;
+			animation-duration: 1s;
+		}
+		#title {
+			margin-top:50px;
+			text-align:center
+		}
+		#alert {
+			width : 100%;
+			text-align:center;
+			margin : 20px;
+			background-color: rgba(255,255,255,0.3);
+			font-family: "Arial"
+		}
+		#h1 {
+			font-family: "Arial"
+		}
+	</style>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0-rc1/jquery.js"></script>
+	<script src="//connect.facebook.net/en_US/all.js"></script>
+</head>
+<title>
+	Proiect TW-FaceMaze
+</title>
+</head>
+<body bgcolor = "#000">
+
+	<script>
+		var id = undefined
+		window.fbAsyncInit = function() {
+		    FB.init({
+		      appId      : '1176617402390075',
+		      xfbml      : true,
+		      version    : 'v2.6'
+		    });
+		  }
+
+
+		(function(d, s, id){
+		     var js, fjs = d.getElementsByTagName(s)[0];
+		     if (d.getElementById(id)) {return;}
+		     js = d.createElement(s); js.id = id;
+		     js.src = "//connect.facebook.net/en_US/sdk.js";
+		     fjs.parentNode.insertBefore(js, fjs);
+		}(document, 'script', 'facebook-jssdk'));
+
+		FB.getLoginStatus(function(response) {
+		  //alert(response.status)
+		  if (response.status === 'connected') {
+		  	
+		    // the user is logged in and has authenticated your
+		    // app, and response.authResponse supplies
+		    // the user's ID, a valid access token, a signed
+		    // request, and the time the access token 
+		    // and signed request each expire
+		    var uid = response.authResponse.userID;
+		    var accessToken = response.authResponse.accessToken;
+			
+			FB.api(
+			  '/me',
+			  'GET',
+			  {},
+			  function(response) {
+			      id = response.id
+			      //alert(id)
+			  }
+			);
+		  } else if (response.status === 'not_authorized') {
+		    // the user is logged in to Facebook, 
+		    // but has not authenticated your app
+		  } else {
+		    // the user isn't logged in to Facebook.
+		  }
+		});
+
+		function start() {
+			window.location.href = "/auth/facebook"
+		}
+		function highscores() {
+			if (id == undefined)
+				id = 0
+			$.get( "/highScores?id="+id, function( data ) {
+				document.getElementById("alert").innerHTML = "<h1>"+data+"</h1>"
+			});
+		}
+		function logout() {
+			document.getElementById("alert").innerHTML = "<h1>Go to <a href='http://www.facebook.com'>Facebook</a> if you want to log out</h1>"
+		}
+	</script>
+	<div id = "title">
+		<img src="title.png">
+	</div>
+	<div class = "option">
+		<a href="/auth/facebook"><img src="start.png"></a>
+	</div>
+	<div class="option">
+		<img src="highscores.png" onclick="highscores()">
+	</div>
+	<div class="option">
+		<img src="logout.png" onclick="logout()">
+	</div>
+	<div id = "alert">
+	</div>
+</body>
+</html>
